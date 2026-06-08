@@ -2,7 +2,7 @@
 API routes for SecuScan backend
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Response, Request, Depends, Body, Query
+from fastapi import APIRouter, HTTPException, Response, Request, Depends, Body, Query
 from fastapi.responses import JSONResponse
 from typing import Any, Optional, List, Dict, Callable, Set
 import json
@@ -484,7 +484,6 @@ async def get_all_presets():
 @router.post("/task/start", dependencies=[Depends(task_start_limiter)])
 async def start_task(
     request: TaskCreateRequest,
-    background_tasks: BackgroundTasks,
     raw_request: Request,
     owner: str = Depends(get_current_owner),
 ):
@@ -554,7 +553,7 @@ async def start_task(
         client_id=client_id,
     )
 
-    background_tasks.add_task(executor.execute_task, result["task_id"])
+    asyncio.create_task(executor.execute_task(result["task_id"]))
     await invalidate_view_cache()
 
     return result
@@ -1752,7 +1751,6 @@ async def create_workflow(payload: Dict[str, Any]):
 @router.post("/workflows/{workflow_id}/run")
 async def run_workflow_once(
     workflow_id: str,
-    background_tasks: BackgroundTasks,
     owner: str = Depends(get_current_owner),
 ):
     db = await get_db()
@@ -1788,7 +1786,7 @@ async def run_workflow_once(
             source="workflow",
         )
         created_task_ids.append(result["task_id"])
-        background_tasks.add_task(executor.execute_task, result["task_id"])
+        asyncio.create_task(executor.execute_task(result["task_id"]))
 
     await db.execute("UPDATE workflows SET last_run_at = datetime('now') WHERE id = ?", (workflow_id,))
     run_id = await db.record_workflow_run(

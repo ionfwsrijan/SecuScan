@@ -85,5 +85,7 @@ def test_client(setup_test_environment):
             await reset_all_endpoint_limiters()
         except ImportError:
             pass
+        if database_module.db:
+            await database_module.db.disconnect()
 
     asyncio.run(teardown())

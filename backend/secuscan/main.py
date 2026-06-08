@@ -13,10 +13,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from . import cache as cache_module
+from . import database as database_module
 from .config import settings
 from .auth import init_api_key
-from .cache import init_cache, cache as global_cache
-from .database import init_db, db as global_db
+from .cache import init_cache
+from .database import init_db
 from .plugins import init_plugins
 from .routes import router, cancel_pending_workflow_tasks
 from .saved_views import saved_views_router
@@ -114,10 +116,10 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Shutting down SecuScan backend...")
-    if global_db:
-        await global_db.disconnect()
-    if global_cache:
-        await global_cache.disconnect()
+    if database_module.db:
+        await database_module.db.disconnect()
+    if cache_module.cache:
+        await cache_module.cache.disconnect()
     await scheduler.stop()
     await cancel_pending_workflow_tasks()
     logger.info("✓ Shutdown complete")
