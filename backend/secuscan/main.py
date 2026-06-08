@@ -18,7 +18,7 @@ from .auth import init_api_key
 from .cache import init_cache, cache as global_cache
 from .database import init_db, db as global_db
 from .plugins import init_plugins
-from .routes import router
+from .routes import router, cancel_pending_workflow_tasks
 from .saved_views import saved_views_router
 from .workflows import scheduler
 
@@ -119,6 +119,7 @@ async def lifespan(app: FastAPI):
     if global_cache:
         await global_cache.disconnect()
     await scheduler.stop()
+    await cancel_pending_workflow_tasks()
     logger.info("✓ Shutdown complete")
 
 # Create FastAPI application

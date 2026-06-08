@@ -4,7 +4,7 @@ API routes for SecuScan backend
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Response, Request, Depends, Body, Query
 from fastapi.responses import JSONResponse
-from typing import Any, Optional, List, Dict, Callable
+from typing import Any, Optional, List, Dict, Callable, Set
 import json
 import logging
 import re
@@ -13,6 +13,21 @@ import uuid
 import asyncio
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
+
+_pending_workflow_tasks: Set[asyncio.Task] = set()
+
+
+def _track_task(task: asyncio.Task) -> None:
+    _pending_workflow_tasks.add(task)
+    task.add_done_callback(_pending_workflow_tasks.discard)
+
+
+async def cancel_pending_workflow_tasks() -> None:
+    for task in list(_pending_workflow_tasks):
+        task.cancel()
+    if _pending_workflow_tasks:
+        await asyncio.gather(*_pending_workflow_tasks, return_exceptions=True)
+    _pending_workflow_tasks.clear()
 
 def parse_json_fields(rows: List[Dict], fields: List[str]) -> List[Dict]:
     """Helper to parse stringified JSON fields from SQLite."""
@@ -1735,7 +1750,11 @@ async def create_workflow(payload: Dict[str, Any]):
 
 
 @router.post("/workflows/{workflow_id}/run")
-async def run_workflow_once(workflow_id: str, owner: str = Depends(get_current_owner)):
+async def run_workflow_once(
+    workflow_id: str,
+    background_tasks: BackgroundTasks,
+    owner: str = Depends(get_current_owner),
+):
     db = await get_db()
     row = await db.fetchone("SELECT * FROM workflows WHERE id = ?", (workflow_id,))
     if not row:
@@ -1769,7 +1788,7 @@ async def run_workflow_once(workflow_id: str, owner: str = Depends(get_current_o
             source="workflow",
         )
         created_task_ids.append(result["task_id"])
-        asyncio.create_task(executor.execute_task(result["task_id"]))
+        background_tasks.add_task(executor.execute_task, result["task_id"])
 
     await db.execute("UPDATE workflows SET last_run_at = datetime('now') WHERE id = ?", (workflow_id,))
     run_id = await db.record_workflow_run(
@@ -1779,7 +1798,7 @@ async def run_workflow_once(workflow_id: str, owner: str = Depends(get_current_o
         task_ids=created_task_ids,
         triggered_by="manual",
     )
-    asyncio.create_task(_finalize_workflow_run(run_id))
+    _track_task(asyncio.create_task(_finalize_workflow_run(run_id)))
     return {
         "workflow_id": workflow_id,
         "run_id": run_id,
