@@ -394,8 +394,6 @@ async def _execute_scan_safe(
         await executor.mark_task_failed(task_id, reason="Concurrency limit reached")
         raise HTTPException(status_code=503, detail=concurrency_err)
 
-    asyncio.create_task(executor.execute_task(task_id))
-
     return {
         "task_id": task_id,
         "status": "queued",
@@ -1771,6 +1769,7 @@ async def run_workflow_once(workflow_id: str, owner: str = Depends(get_current_o
             source="workflow",
         )
         created_task_ids.append(result["task_id"])
+        asyncio.create_task(executor.execute_task(result["task_id"]))
 
     await db.execute("UPDATE workflows SET last_run_at = datetime('now') WHERE id = ?", (workflow_id,))
     run_id = await db.record_workflow_run(
