@@ -1,6 +1,7 @@
 """Workflow automation and scheduling."""
 from __future__ import annotations
 import asyncio
+from typing import Set
 import json
 import logging
 from datetime import datetime, timezone
@@ -17,6 +18,11 @@ class WorkflowScheduler:
     def __init__(self):
         self._task: asyncio.Task | None = None
         self._running = False
+        self._child_tasks: Set[asyncio.Task] = set()
+
+    def _track_child(self, task: asyncio.Task) -> None:
+        self._child_tasks.add(task)
+        task.add_done_callback(self._child_tasks.discard)
 
     async def start(self):
         if self._task and not self._task.done():
@@ -33,6 +39,11 @@ class WorkflowScheduler:
             except asyncio.CancelledError:
                 pass
         self._task = None
+        for task in list(self._child_tasks):
+            task.cancel()
+        if self._child_tasks:
+            await asyncio.gather(*self._child_tasks, return_exceptions=True)
+        self._child_tasks.clear()
         logger.info("Workflow scheduler stopped")
     async def _run_loop(self):
         while self._running:
@@ -153,7 +164,7 @@ class WorkflowScheduler:
                 logger.warning("Workflow %s: concurrency limit reached for %s", workflow_id, plugin_id)
                 continue
 
-            asyncio.create_task(executor.execute_task(task_id))
+            self._track_child(asyncio.create_task(executor.execute_task(task_id)))
 
 
 scheduler = WorkflowScheduler()
