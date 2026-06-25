@@ -297,6 +297,36 @@ class NetworkPolicyEngine:
         self._log_audit_entry(entry)
         return False, reason, deny_policy
 
+    def resolve_and_pin(self, target: str) -> Tuple[Optional[str], bool, str]:
+        """Resolve target hostname once and validate against network policy.
+
+        Pins the resolved IP so the scanner subprocess cannot be victimized
+        by a DNS rebinding attack (where DNS switches to a malicious IP
+        between policy check and scan execution).
+
+        Args:
+            target: Hostname or IP address to resolve.
+
+        Returns:
+            Tuple of (pinned_ip, is_allowed, reason).
+            pinned_ip is None if the hostname is unresolvable.
+        """
+        try:
+            ip = ipaddress.ip_address(target)
+            pinned = str(ip)
+            allowed, reason, _ = self.check_access(dest_ip=pinned, dest_hostname=target)
+            return (pinned, allowed, reason)
+        except ValueError:
+            pass
+
+        try:
+            resolved = socket.gethostbyname(target)
+            ipaddress.ip_address(resolved)
+            allowed, reason, _ = self.check_access(dest_ip=resolved, dest_hostname=target)
+            return (resolved, allowed, reason)
+        except socket.gaierror:
+            return (None, False, f"Unresolvable hostname: {target}")
+
     def _is_expired(self, policy: NetworkPolicy) -> bool:
         """Check if a policy has expired"""
         if policy.expires_at is None:
