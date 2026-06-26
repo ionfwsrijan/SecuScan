@@ -423,6 +423,8 @@ class TaskExecutor:
                     asyncio.to_thread(
                         engine.resolve_and_pin,
                         target,
+                        plugin_id,
+                        task_id,
                     ),
                     timeout=float(settings.dns_resolution_timeout_seconds),
                 )
@@ -567,7 +569,8 @@ class TaskExecutor:
         # Validate all command arguments against safe-mode + network policy
         from .validation import validate_command_network_egress
         cmd_valid, cmd_err = validate_command_network_egress(
-            command, safe_mode, plugin_id, task_id
+            command, safe_mode, plugin_id, task_id,
+            pinned_ip=inputs.get("__pinned_ip"),
         )
         if not cmd_valid:
             raise ValueError(f"Command network egress validation failed: {cmd_err}")
@@ -710,10 +713,7 @@ class TaskExecutor:
             if not guardrails_ok:
                 return
             if pinned_ip:
-                target = pinned_ip
-                for key in ("target", "url", "host", "domain"):
-                    if key in inputs:
-                        inputs[key] = pinned_ip
+                inputs["__pinned_ip"] = pinned_ip
 
             # Check if this is a modular scanner or a standard plugin
             plugin_manager = get_plugin_manager()
