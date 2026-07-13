@@ -453,6 +453,19 @@ class TaskExecutor:
         )
         await _net_check.wait()
         if _net_check.returncode == 0:
+            _inspect = await asyncio.create_subprocess_exec(
+                "docker", "network", "inspect", settings.docker_network,
+                "--format", '{{ index .Options "com.docker.network.bridge.enable_icc" }}',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await _inspect.communicate()
+            icc_setting = stdout.decode().strip()
+            if icc_setting != "false":
+                raise RuntimeError(
+                    f"Docker network '{settings.docker_network}' exists but ICC is not disabled "
+                    f"(got '{icc_setting}'). Recreate the network with ICC disabled or use a different network name."
+                )
             return
 
         logger.info(f"Docker network '{settings.docker_network}' not found. Creating isolated bridge network (ICC disabled)...")
@@ -461,26 +474,19 @@ class TaskExecutor:
             "--driver", "bridge",
             "--opt", "com.docker.network.bridge.enable_icc=false",
             settings.docker_network,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        await _net_create.wait()
-        if _net_create.returncode == 0:
-            logger.info(f"Successfully created Docker network '{settings.docker_network}' with ICC disabled")
-            return
+        _, stderr = await _net_create.communicate()
 
-        logger.warning("Failed to create isolated bridge network with ICC disabled. Falling back to standard bridge...")
-        _net_create_fallback = await asyncio.create_subprocess_exec(
-            "docker", "network", "create", "--driver", "bridge", settings.docker_network,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await _net_create_fallback.wait()
-        if _net_create_fallback.returncode != 0:
+        if _net_create.returncode != 0:
             raise RuntimeError(
-                f"Docker network '{settings.docker_network}' does not exist and could not be created automatically."
+                f"Failed to create Docker network '{settings.docker_network}' with ICC disabled. "
+                f"Docker error: {stderr.decode().strip()}. "
+                "Scans requiring Docker sandboxing cannot proceed until this is resolved."
             )
-        logger.info(f"Successfully created Docker network '{settings.docker_network}' (fallback)")
+
+        logger.info(f"Created Docker network '{settings.docker_network}' with ICC disabled")
 
     async def _execute_modular_scanner(
         self,

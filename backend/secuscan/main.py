@@ -126,19 +126,15 @@ async def lifespan(app: FastAPI):
                             "--opt", "com.docker.network.bridge.enable_icc=false",
                             settings.docker_network
                         ],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                        capture_output=True,
                     )
                     if creation_res.returncode != 0:
-                        logger.warning("Failed to create isolated bridge network with ICC disabled. Falling back to standard bridge...")
-                        subprocess.run(
-                            ["docker", "network", "create", "--driver", "bridge", settings.docker_network],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
+                        raise RuntimeError(
+                            f"Failed to create Docker network '{settings.docker_network}' with ICC disabled. "
+                            f"Docker error: {creation_res.stderr.decode().strip()}. "
+                            "Scans requiring Docker sandboxing cannot proceed until this is resolved."
                         )
-                        logger.info(f"✓ Docker network '{settings.docker_network}' created (fallback)")
-                    else:
-                        logger.info(f"✓ Docker network '{settings.docker_network}' created with ICC disabled")
+                    logger.info(f"✓ Docker network '{settings.docker_network}' created with ICC disabled")
                 else:
                     logger.info(f"✓ Docker network '{settings.docker_network}' verified")
             except Exception as e:
