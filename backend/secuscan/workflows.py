@@ -65,9 +65,10 @@ class WorkflowScheduler:
 
             owner_id = row["owner_id"]
             await self._run_workflow(row["id"], json.loads(row.get("steps_json") or "[]"), owner_id=owner_id)
+            utc_now = datetime.now(timezone.utc)
             await db.execute(
-                "UPDATE workflows SET last_run_at = datetime('now') WHERE id = ?",
-                (row["id"],),
+                "UPDATE workflows SET last_run_at = ? WHERE id = ?",
+                (utc_now.isoformat(), row["id"]),
             )
     def _should_run(self, now: datetime, last_run_at: str | None, schedule_seconds: int) -> bool:
         if not last_run_at:
